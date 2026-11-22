@@ -1,12 +1,18 @@
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using UrlMonitor.Api.Background;
 using UrlMonitor.Api.Data;
+using UrlMonitor.Api.Endpoints;
 using UrlMonitor.Api.Services;
 using UrlMonitor.Api.Services.Alerts;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
+
+// Enums go over the wire as strings ("Up", "Down", "Sent"...), matching how they're stored.
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddDbContext<MonitorDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Monitor")));
@@ -29,12 +35,20 @@ var app = builder.Build();
 
 await app.InitializeDatabaseAsync();
 
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+// No HTTPS redirect: the app runs locally over plain HTTP behind the Vite dev proxy
+// (design.md questions 19 and 20), and a redirect would break proxied /api calls.
+
+app.MapUrlEndpoints();
+app.MapCheckEndpoints();
+app.MapAlertEndpoints();
 
 app.Run();
 

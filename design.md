@@ -100,6 +100,7 @@ rosnet-url-monitor/
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/api/urls` | All URLs with their latest check (dashboard) |
+| GET | `/api/urls/{id}` | One URL with its latest check (detail page header) |
 | POST | `/api/urls` | Add a URL (validates it, rejects duplicates) |
 | DELETE | `/api/urls/{id}` | Delete a URL and its history (cascade) |
 | GET | `/api/urls/{id}/checks?from=&to=&page=&pageSize=` | History, newest first |
