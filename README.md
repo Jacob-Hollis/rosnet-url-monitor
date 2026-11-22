@@ -1,4 +1,6 @@
-# URL Monitor
+# What I built
+
+## Url Monitor
 
 A lightweight URL health monitor. It checks a list of URLs every 5 minutes, records the HTTP status and
 response time of every check in SQLite, shows current health and history in a web UI, and emails you
@@ -147,8 +149,34 @@ Run the parts separately if you prefer: `npm run start:api`, `npm run start:web`
   that a browser marks as coming from another website, so a page you visit can't, say, send test emails or
   delete URLs. The UI, curl and scripts are unaffected.
 
-## Possible follow-ups
 
-Retention cleanup of old checks · per-URL check intervals · per-URL alert subscriptions · real SMTP
-provider setup · retrying failed emails · email confirmation (for non-local use) · Postgres (mostly a
-provider change plus regenerated migrations).
+# The Debrief
+
+30 minutes was allocated to design, 1 hour to coding, and 1 hour to review and testing. A small amount of extra time for reviewing this readme and adding context.
+
+## Backend design
+
+
+## Frontend design
+
+
+## Testing approach
+
+I decided to use mostly unit tests and some integration tests. A fair amount of unit tests were cut out to keep it lean. No automated UI test were used, instead I did manual UI testing (and in real scenarios I would also record a demo of my UI testing for future reference, for QA engineers, and to catch issues I didn't see before). UI test would be a follow up as noted above.
+
+## AI Usage
+
+I used Claude Code exclusively for design and coding.
+
+## Possible follow-ups and other improvements that were cut
+
+- **Retention cleanup of old checks** 
+- **per-URL check intervals**
+- **per-URL alert subscriptions**
+- **real SMTP**
+- **provider setup** 
+- **retrying failed emails** 
+- **email confirmation (for non-local use)**
+- **Postgres (mostly a provider change plus regenerated migrations)**
+- **UI automated tests, for example through Playwright**
+
