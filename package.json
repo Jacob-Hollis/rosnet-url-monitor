@@ -1,0 +1,17 @@
+{
+  "name": "rosnet-url-monitor",
+  "private": true,
+  "description": "Lightweight URL health monitor: .NET API + SQLite + Vue UI + email alerts",
+  "scripts": {
+    "setup": "npm install && npm --prefix frontend install && dotnet tool restore && dotnet restore UrlMonitor.slnx",
+    "start": "concurrently --names api,web,mail --prefix-colors blue,green,magenta \"npm:start:api\" \"npm:start:web\" \"npm:start:mail\"",
+    "start:api": "dotnet run --project backend/src/UrlMonitor.Api --launch-profile http",
+    "start:web": "npm --prefix frontend run dev",
+    "start:mail": "dotnet smtp4dev --smtpport=2525 --urls=http://localhost:5050",
+    "test": "dotnet test UrlMonitor.slnx",
+    "build": "dotnet build UrlMonitor.slnx && npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
+  }
+}

@@ -171,6 +171,8 @@ Because email works locally, email is the main alert channel. **In-browser toast
 
 ## 4. Build Steps (in order)
 
+> **Status (2026-11-22):** all 10 steps are built and committed. See README.md for how to run it.
+
 1. **Install prerequisites:** the .NET 10 SDK and Node. The `dotnet-ef` (10.0.15) and smtp4dev (3.15.0) tools are pinned in the repo's local tool manifest (`dotnet-tools.json`). Run `dotnet tool restore` to install them. No global installs are needed. *(Done: SDK installed, git initialized, manifest created.)*
 2. **Scaffold:** create the solution, the `webapi` project, two xUnit projects, and the Vite Vue app.
 3. **Data layer:** write the models, the DbContext, an index on `(MonitoredUrlId, CheckedAt)`, a unique index on `AlertRecipient.Email`, cascade delete, and the initial migration. The schema is applied at startup with `Migrate()`.
