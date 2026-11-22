@@ -63,7 +63,9 @@ rosnet-url-monitor/
 │  │  │  ├─ ICheckRunner.cs / CheckRunner.cs       # checks all URLs, saves results, calls AlertService
 │  │  │  ├─ IAlertService.cs / AlertService.cs     # state-change detection → AlertEvent → send
 │  │  │  ├─ IEmailSender.cs / SmtpEmailSender.cs   # MailKit implementation
-│  │  │  └─ IClock.cs                              # testable time
+│  │  │  ├─ StatusRules.cs                         # up/down rule: 2xx, 401, 403 = up
+│  │  │  └─ MonitorOptions.cs                      # "Monitor" config section
+│  │  │  (time comes from .NET's built-in TimeProvider; tests use FakeTimeProvider)
 │  │  └─ Background/
 │  │     └─ CheckSchedulerService.cs               # PeriodicTimer loop → ICheckRunner
 │  └─ tests/
