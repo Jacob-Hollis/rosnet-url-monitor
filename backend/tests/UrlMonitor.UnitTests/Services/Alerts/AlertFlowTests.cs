@@ -77,39 +77,8 @@ public sealed class AlertFlowTests : IAsyncLifetime
         return await context.MonitoredUrls.SingleAsync(u => u.Id == _urlId);
     }
 
-    [Fact]
-    public async Task Down_alert_is_emailed_to_all_recipients_after_two_failures()
-    {
-        await AddRecipientsAsync("ops@example.com", "dev@example.com");
-
-        await RunChecksAsync("UD");
-        Assert.Empty(_email.Sent);
-
-        await RunChecksAsync("D");
-
-        var email = Assert.Single(_email.Sent);
-        Assert.Equal("[DOWN] https://example.com", email.Subject);
-        Assert.Equal(["ops@example.com", "dev@example.com"], email.Recipients);
-
-        var alert = Assert.Single(await EventsAsync());
-        Assert.Equal(AlertKind.Down, alert.Kind);
-        Assert.Equal(AlertDelivery.Sent, alert.Delivery);
-
-        var url = await UrlAsync();
-        Assert.Equal(UrlState.Down, url.CurrentState);
-        Assert.Equal(2, url.ConsecutiveFailures);
-    }
-
-    [Fact]
-    public async Task Staying_down_sends_only_one_email()
-    {
-        await AddRecipientsAsync("ops@example.com");
-
-        await RunChecksAsync("UDDDDDD");
-
-        Assert.Single(_email.Sent);
-        Assert.Single(await EventsAsync());
-    }
+    // The basic DOWN email, "one email while it stays down" and "email failure is recorded" are
+    // covered end to end by the integration tests; these cover the timing rules they can't reach.
 
     [Fact]
     public async Task Recovery_after_cooldown_is_emailed_with_outage_length()
@@ -147,23 +116,6 @@ public sealed class AlertFlowTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Email_failure_is_recorded_and_does_not_fail_the_run()
-    {
-        await AddRecipientsAsync("ops@example.com");
-        _email.FailWith = new IOException("Connection refused by localhost:2525");
-
-        await RunChecksAsync("UDD");
-
-        var alert = Assert.Single(await EventsAsync());
-        Assert.Equal(AlertDelivery.Failed, alert.Delivery);
-        Assert.Equal("Connection refused by localhost:2525", alert.Error);
-
-        // The checks themselves were still saved.
-        await using var context = _db.CreateContext();
-        Assert.Equal(3, await context.UrlChecks.CountAsync());
-    }
-
-    [Fact]
     public async Task Failed_email_does_not_start_a_cooldown()
     {
         await AddRecipientsAsync("ops@example.com");
@@ -184,32 +136,6 @@ public sealed class AlertFlowTests : IAsyncLifetime
 
         Assert.Empty(_email.Sent);
         Assert.Equal(AlertDelivery.NoRecipients, Assert.Single(await EventsAsync()).Delivery);
-    }
-
-    [Fact]
-    public async Task Recovery_emails_can_be_turned_off()
-    {
-        await AddRecipientsAsync("ops@example.com");
-        _alertOptions.SendRecoveryEmails = false;
-        _alertOptions.CooldownMinutes = 0;
-
-        await RunChecksAsync("UDDU");
-
-        Assert.Equal("[DOWN] https://example.com", Assert.Single(_email.Sent).Subject);
-        Assert.Equal(AlertDelivery.Suppressed, (await EventsAsync())[1].Delivery);
-    }
-
-    [Fact]
-    public async Task State_survives_a_restart()
-    {
-        await AddRecipientsAsync("ops@example.com");
-        await RunChecksAsync("UDD");
-
-        // Every run uses a fresh DbContext, just like after an app restart:
-        // the saved Down state means no second DOWN email.
-        await RunChecksAsync("DD");
-
-        Assert.Single(_email.Sent);
     }
 
     private sealed class ScriptedChecker(AlertFlowTests test) : IUrlChecker

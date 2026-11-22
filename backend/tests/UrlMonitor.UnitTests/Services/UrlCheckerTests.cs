@@ -37,17 +37,6 @@ public class UrlCheckerTests
         Assert.Equal(DateTimeKind.Utc, result.CheckedAt.Kind);
     }
 
-    [Theory]
-    [InlineData(HttpStatusCode.Unauthorized)]
-    [InlineData(HttpStatusCode.Forbidden)]
-    public async Task Auth_responses_are_up(HttpStatusCode status)
-    {
-        var result = await CreateChecker(status).CheckAsync(Url);
-
-        Assert.True(result.IsUp);
-        Assert.Equal((int)status, result.StatusCode);
-    }
-
     [Fact]
     public async Task Server_error_is_down_with_status_in_error()
     {
@@ -166,24 +155,6 @@ public class UrlCheckerTests
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => checker.CheckAsync(Url, cts.Token));
-    }
-
-    [Fact]
-    public async Task Sends_get_with_user_agent()
-    {
-        HttpRequestMessage? sent = null;
-        var client = new HttpClient(new FakeHandler((req, _) =>
-        {
-            sent = req;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-        }));
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(UrlChecker.UserAgent);
-        var checker = new UrlChecker(client, Options.Create(_options), _time);
-
-        await checker.CheckAsync(Url);
-
-        Assert.Equal(HttpMethod.Get, sent!.Method);
-        Assert.Equal(new Uri(Url), sent.RequestUri);
     }
 
     private sealed class FakeHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)

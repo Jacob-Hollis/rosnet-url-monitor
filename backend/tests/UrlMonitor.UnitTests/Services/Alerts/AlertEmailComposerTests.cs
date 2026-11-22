@@ -54,8 +54,8 @@ public class AlertEmailComposerTests
     [Theory]
     [InlineData(45, "45s")]
     [InlineData(10 * 60 + 5, "10m 5s")]
-    [InlineData(3 * 3600 + 20 * 60, "3h 20m")]
     [InlineData(-5, "0s")]
+    // Hours ("1h 15m") are covered by the recovered email test.
     public void Durations(int seconds, string expected) =>
         Assert.Equal(expected, AlertEmailComposer.FormatDuration(TimeSpan.FromSeconds(seconds)));
 }

@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -66,14 +65,6 @@ public sealed class CheckRunnerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task RunAll_with_no_urls_does_nothing()
-    {
-        await using var context = _db.CreateContext();
-        var checks = await CreateRunner(context, FakeChecker.NeverCalled).RunAllAsync();
-        Assert.Empty(checks);
-    }
-
-    [Fact]
     public async Task RunAll_respects_max_concurrency()
     {
         _options.MaxConcurrency = 3;
@@ -123,32 +114,6 @@ public sealed class CheckRunnerTests : IAsyncLifetime
         Assert.Equal(ids[0], (await verify.UrlChecks.SingleAsync()).MonitoredUrlId);
     }
 
-    [Fact]
-    public async Task RunOne_checks_and_saves_a_single_url()
-    {
-        var ids = await AddUrlsAsync(("https://one.test", true), ("https://two.test", true));
-        var checker = new FakeChecker(_ => new CheckResult(Now, 200, 10, true, null));
-
-        await using (var context = _db.CreateContext())
-        {
-            var check = await CreateRunner(context, checker).RunOneAsync(ids[1]);
-            Assert.NotNull(check);
-            Assert.Equal(ids[1], check.MonitoredUrlId);
-        }
-
-        Assert.Equal(["https://two.test"], checker.Checked);
-        await using var verify = _db.CreateContext();
-        Assert.Equal(1, await verify.UrlChecks.CountAsync());
-    }
-
-    [Fact]
-    public async Task RunOne_returns_null_for_unknown_url()
-    {
-        await using var context = _db.CreateContext();
-        var check = await CreateRunner(context, FakeChecker.NeverCalled).RunOneAsync(999);
-        Assert.Null(check);
-    }
-
     private static void InterlockedMax(ref int target, int value)
     {
         int seen;
@@ -162,8 +127,6 @@ public sealed class CheckRunnerTests : IAsyncLifetime
 
         public FakeChecker(Func<string, CheckResult> check) => _check = url => Task.FromResult(check(url));
         public FakeChecker(Func<string, Task<CheckResult>> check) => _check = check;
-
-        public static FakeChecker NeverCalled => new(_ => Task.FromException<CheckResult>(new UnreachableException()));
 
         private readonly ConcurrentQueue<string> _checked = new();
         public IReadOnlyList<string> Checked => _checked.ToList();

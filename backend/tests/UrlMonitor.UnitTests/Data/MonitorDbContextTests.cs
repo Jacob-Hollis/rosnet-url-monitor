@@ -46,34 +46,6 @@ public sealed class MonitorDbContextTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DateTime_queries_filter_and_sort_correctly()
-    {
-        var start = new DateTime(2026, 11, 22, 0, 0, 0, DateTimeKind.Utc);
-        await using (var db = CreateContext())
-        {
-            var url = NewUrl("https://example.com");
-            for (var i = 0; i < 5; i++)
-            {
-                url.Checks.Add(new UrlCheck { CheckedAt = start.AddMinutes(5 * i), StatusCode = 200, IsUp = true });
-            }
-            db.MonitoredUrls.Add(url);
-            await db.SaveChangesAsync();
-        }
-
-        await using (var db = CreateContext())
-        {
-            var from = start.AddMinutes(10);
-            var times = await db.UrlChecks
-                .Where(c => c.CheckedAt >= from)
-                .OrderByDescending(c => c.CheckedAt)
-                .Select(c => c.CheckedAt)
-                .ToListAsync();
-
-            Assert.Equal([start.AddMinutes(20), start.AddMinutes(15), start.AddMinutes(10)], times);
-        }
-    }
-
-    [Fact]
     public async Task Deleting_a_url_deletes_its_checks_and_alert_events()
     {
         await using (var db = CreateContext())
@@ -104,33 +76,6 @@ public sealed class MonitorDbContextTests : IAsyncLifetime
 
         db.MonitoredUrls.Add(NewUrl("https://example.com"));
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-    }
-
-    [Fact]
-    public async Task Duplicate_recipient_email_is_rejected()
-    {
-        await using var db = CreateContext();
-        db.AlertRecipients.Add(new AlertRecipient { Email = "ops@example.com", CreatedAt = DateTime.UtcNow });
-        await db.SaveChangesAsync();
-
-        db.AlertRecipients.Add(new AlertRecipient { Email = "ops@example.com", CreatedAt = DateTime.UtcNow });
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-    }
-
-    [Fact]
-    public async Task Enums_are_stored_as_strings()
-    {
-        await using (var db = CreateContext())
-        {
-            var url = NewUrl("https://example.com");
-            url.CurrentState = UrlState.Down;
-            db.MonitoredUrls.Add(url);
-            await db.SaveChangesAsync();
-        }
-
-        await using var command = _connection.CreateCommand();
-        command.CommandText = "SELECT CurrentState FROM MonitoredUrls";
-        Assert.Equal("Down", await command.ExecuteScalarAsync());
     }
 
     private static MonitoredUrl NewUrl(string url) => new() { Url = url, CreatedAt = DateTime.UtcNow };

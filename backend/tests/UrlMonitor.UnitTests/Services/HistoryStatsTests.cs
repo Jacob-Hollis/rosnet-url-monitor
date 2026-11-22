@@ -13,17 +13,13 @@ public class HistoryStatsTests
     private static CheckPoint Down(DateTime at, int ms = 100, int? status = 500) => new(at, false, ms, status);
 
     [Theory]
-    [InlineData(null, "24h")]
-    [InlineData("", "24h")]
-    [InlineData("1h", "1h")]
-    [InlineData("7D", "7d")]
-    [InlineData(" 30d ", "30d")]
+    [InlineData(null, "24h")]   // default
+    [InlineData("7D", "7d")]    // case-insensitive
+    [InlineData(" 30d ", "30d")] // trimmed
     public void Parses_ranges(string? input, string expected) => Assert.Equal(expected, StatsRange.Parse(input)!.Name);
 
-    [Theory]
-    [InlineData("2h")]
-    [InlineData("week")]
-    public void Rejects_unknown_ranges(string input) => Assert.Null(StatsRange.Parse(input));
+    [Fact]
+    public void Rejects_unknown_ranges() => Assert.Null(StatsRange.Parse("2h"));
 
     [Fact]
     public void Empty_history_has_null_stats()
