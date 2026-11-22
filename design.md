@@ -81,7 +81,10 @@ rosnet-url-monitor/
    ├─ package.json, vite.config.js   # proxy /api → http://localhost:5xxx
    └─ src/
       ├─ main.js, App.vue, router.js # nav: Dashboard | Alerts
-      ├─ api/client.js               # fetch wrappers
+      ├─ api/client.js               # fetch wrappers (problem details → readable errors)
+      ├─ stores/urlStatus.js         # app-wide 30s polling of /api/urls; fires state-change toasts
+      ├─ stores/toasts.js            # toast queue
+      ├─ utils/format.js             # local-time, duration, ms/percent formatting; chart ticks
       ├─ views/
       │  ├─ DashboardView.vue        # URL list, red/green chip, status code, response time, add/delete
       │  ├─ UrlDetailView.vue        # chart/list toggle, uptime/response-time toggle
@@ -91,6 +94,7 @@ rosnet-url-monitor/
          ├─ AddUrlForm.vue
          ├─ AddEmailForm.vue
          ├─ ToastNotifications.vue   # red/green pop-ups when polling sees a state change
+         ├─ ConfirmButton.vue        # two-click delete (no browser confirm dialog)
          ├─ HistoryChart.vue         # Chart.js via vue-chartjs
          └─ HistoryTable.vue         # newest → oldest, paginated
 ```
