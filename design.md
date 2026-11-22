@@ -51,7 +51,8 @@ rosnet-url-monitor/
 │  │  │  ├─ MonitoredUrl.cs          # Id, Url, Name?, CreatedAt, IsActive, CurrentState, ConsecutiveFailures
 │  │  │  ├─ UrlCheck.cs              # Id, MonitoredUrlId, CheckedAt, StatusCode?, ResponseTimeMs, IsUp, Error?
 │  │  │  ├─ AlertRecipient.cs        # Id, Email, CreatedAt
-│  │  │  └─ AlertEvent.cs            # Id, MonitoredUrlId, OccurredAt, Kind (Down/Recovered), Sent, Error?
+│  │  │  └─ AlertEvent.cs            # Id, MonitoredUrlId, OccurredAt, Kind (Down/Recovered),
+│  │  │                               #   Delivery (Sent/Failed/Suppressed/NoRecipients), Error?
 │  │  ├─ Dtos/                       # UrlSummaryDto, CheckDto, CreateUrlRequest, StatsDto, RecipientDto
 │  │  ├─ Endpoints/
 │  │  │  ├─ UrlEndpoints.cs          # add / delete / list
