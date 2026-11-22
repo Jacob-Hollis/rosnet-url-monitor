@@ -14,12 +14,14 @@ public sealed class CheckRunnerTests : IAsyncLifetime
 
     private TestSqliteDb _db = null!;
     private readonly MonitorOptions _options = new() { MaxConcurrency = 10 };
+    private readonly CheckStateLock _stateLock = new(); // shared, like the app's singleton
+    private readonly AlertQueue _queue = new();
 
     public async Task InitializeAsync() => _db = await TestSqliteDb.CreateAsync();
     public async Task DisposeAsync() => await _db.DisposeAsync();
 
     private CheckRunner CreateRunner(Api.Data.MonitorDbContext context, IUrlChecker checker) =>
-        new(context, checker, NewAlertService(context), Options.Create(_options), NullLogger<CheckRunner>.Instance);
+        new(context, checker, NewAlertService(context), _queue, _stateLock, Options.Create(_options), NullLogger<CheckRunner>.Instance);
 
     private static AlertService NewAlertService(Api.Data.MonitorDbContext context) => new(
         context, new FakeEmailSender(), Options.Create(new AlertsOptions()), TimeProvider.System, NullLogger<AlertService>.Instance);
@@ -112,6 +114,66 @@ public sealed class CheckRunnerTests : IAsyncLifetime
 
         await using var verify = _db.CreateContext();
         Assert.Equal(ids[0], (await verify.UrlChecks.SingleAsync()).MonitoredUrlId);
+    }
+
+    [Fact]
+    public async Task RunOne_returns_null_when_url_is_deleted_during_its_check()
+    {
+        var ids = await AddUrlsAsync(("https://deleted.test", true));
+        var checker = new FakeChecker(async _ =>
+        {
+            await using var other = _db.CreateContext();
+            await other.MonitoredUrls.ExecuteDeleteAsync();
+            return new CheckResult(Now, 200, 1, true, null);
+        });
+
+        await using (var context = _db.CreateContext())
+        {
+            Assert.Null(await CreateRunner(context, checker).RunOneAsync(ids[0]));
+        }
+
+        await using var verify = _db.CreateContext();
+        Assert.Equal(0, await verify.UrlChecks.CountAsync());
+    }
+
+    [Fact]
+    public async Task Concurrent_runs_apply_failures_in_turn_and_alert_once()
+    {
+        // Up with 1 failure; threshold is 2. A scheduled run and a "check now" both see a failure.
+        var ids = await AddUrlsAsync(("https://flaky.test", true));
+        await using (var setup = _db.CreateContext())
+        {
+            var url = await setup.MonitoredUrls.SingleAsync();
+            url.CurrentState = UrlState.Up;
+            url.ConsecutiveFailures = 1;
+            await setup.SaveChangesAsync();
+        }
+
+        // Hold both runs inside their HTTP check at the same time, then release them together.
+        var release = new TaskCompletionSource();
+        var entered = new SemaphoreSlim(0);
+        var checker = new FakeChecker(async _ =>
+        {
+            entered.Release();
+            await release.Task;
+            return new CheckResult(Now, 500, 1, false, "HTTP 500");
+        });
+
+        await using var scheduledContext = _db.CreateContext();
+        await using var checkNowContext = _db.CreateContext();
+        var scheduled = CreateRunner(scheduledContext, checker).RunAllAsync();
+        Assert.True(await entered.WaitAsync(TimeSpan.FromSeconds(5)));
+        var checkNow = CreateRunner(checkNowContext, checker).RunOneAsync(ids[0]);
+        Assert.True(await entered.WaitAsync(TimeSpan.FromSeconds(5)));
+        release.SetResult();
+        await Task.WhenAll(scheduled, checkNow);
+
+        await using var verify = _db.CreateContext();
+        var saved = await verify.MonitoredUrls.SingleAsync();
+        Assert.Equal(3, saved.ConsecutiveFailures);          // 1 + 2: neither update was lost
+        Assert.Equal(UrlState.Down, saved.CurrentState);
+        Assert.Single(await verify.AlertEvents.ToListAsync()); // one DOWN alert, not two
+        Assert.Equal(2, await verify.UrlChecks.CountAsync());
     }
 
     private static void InterlockedMax(ref int target, int value)

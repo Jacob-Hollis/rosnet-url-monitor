@@ -63,6 +63,7 @@ rosnet-url-monitor/
 │  │  │  ├─ ICheckRunner.cs / CheckRunner.cs       # checks all URLs, saves results, calls AlertService
 │  │  │  ├─ Alerts/
 │  │  │  │  ├─ AlertService.cs                     # evaluate state changes → AlertEvent; deliver emails
+│  │  │  │  ├─ AlertQueue.cs                       # in-memory queue of alert ids waiting to be emailed
 │  │  │  │  ├─ AlertRules.cs                       # pure state machine: threshold, recovery, cooldown
 │  │  │  │  ├─ AlertEmailComposer.cs               # subject/body text
 │  │  │  │  ├─ IEmailSender.cs / SmtpEmailSender.cs  # MailKit 4.x implementation
@@ -70,8 +71,10 @@ rosnet-url-monitor/
 │  │  │  ├─ StatusRules.cs                         # up/down rule: 2xx, 401, 403 = up
 │  │  │  └─ MonitorOptions.cs                      # "Monitor" config section
 │  │  │  (time comes from .NET's built-in TimeProvider; tests use FakeTimeProvider)
+│  │  │  (CheckStateLock.cs: serializes "apply results + save" and URL deletes across runs)
 │  │  └─ Background/
-│  │     └─ CheckSchedulerService.cs               # PeriodicTimer loop → ICheckRunner
+│  │     ├─ CheckSchedulerService.cs               # PeriodicTimer loop → ICheckRunner
+│  │     └─ AlertDeliveryService.cs                # emails queued alerts; re-queues unsent ones at startup
 │  └─ tests/
 │     ├─ UrlMonitor.UnitTests/       # xUnit: UrlChecker (fake HttpMessageHandler), validation,
 │     │                              #        uptime math, AlertService state changes (fake IEmailSender)

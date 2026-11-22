@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
+using UrlMonitor.Api.Background;
+using UrlMonitor.Api.Data;
+using UrlMonitor.Api.Models;
 using UrlMonitor.Api.Services;
 using UrlMonitor.Api.Services.Alerts;
 
@@ -41,17 +44,40 @@ public sealed class MonitorAppFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             // Belt and braces: make sure no scheduler runs, whatever the config says.
-            services.RemoveAll<IHostedService>();
+            // The alert delivery worker stays: it's what sends the (fake) emails.
+            var scheduler = services.Where(d => d.ImplementationType == typeof(CheckSchedulerService)).ToList();
+            foreach (var descriptor in scheduler) services.Remove(descriptor);
+
             services.RemoveAll<IEmailSender>();
             services.AddSingleton<IEmailSender>(Email);
         });
     }
 
-    /// <summary>Runs one scheduled check of every URL, exactly as the 5-minute job does.</summary>
+    /// <summary>
+    /// Runs one scheduled check of every URL, exactly as the 5-minute job does, then waits for the
+    /// background worker to finish emailing any alerts it raised.
+    /// </summary>
     public async Task RunScheduledCheckAsync()
     {
-        await using var scope = Services.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<ICheckRunner>().RunAllAsync();
+        await using (var scope = Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<ICheckRunner>().RunAllAsync();
+        }
+        await WaitForAlertDeliveryAsync();
+    }
+
+    /// <summary>Waits until no alert is still waiting to be emailed.</summary>
+    public async Task WaitForAlertDeliveryAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            await using var scope = Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<MonitorDbContext>();
+            if (!await db.AlertEvents.AnyAsync(e => e.Delivery == AlertDelivery.Pending)) return;
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("Alerts were still Pending after 10s.");
+            await Task.Delay(20);
+        }
     }
 
     public override async ValueTask DisposeAsync()

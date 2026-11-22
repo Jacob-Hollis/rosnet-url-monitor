@@ -59,9 +59,11 @@ public static class UrlEndpoints
         return TypedResults.Created($"/api/urls/{entity.Id}", dto);
     }
 
-    private static async Task<IResult> DeleteAsync(int id, MonitorDbContext db, CancellationToken ct)
+    private static async Task<IResult> DeleteAsync(int id, MonitorDbContext db, CheckStateLock stateLock, CancellationToken ct)
     {
+        // Under the check lock, so a URL can't disappear while a check run is saving its results.
         // Hard delete; the database cascades to checks and alert events (design.md questions 15 and 28).
+        using var _ = await stateLock.AcquireAsync(ct);
         var deleted = await db.MonitoredUrls.Where(u => u.Id == id).ExecuteDeleteAsync(ct);
         return deleted == 0 ? NotFound(id) : TypedResults.NoContent();
     }

@@ -164,6 +164,19 @@ public sealed class MonitorEndToEndTests(StubServer stub) : IClassFixture<StubSe
     }
 
     [Fact]
+    public async Task Deleting_a_url_while_check_now_runs_returns_404_not_500()
+    {
+        var url = await AddUrlAsync(stub.Url("/slow")); // the check takes the full 1s timeout
+
+        var checkNow = _client.PostAsync($"/api/urls/{url.Id}/check", null);
+        await Task.Delay(300); // the check is now waiting on the slow page
+        var delete = await _client.DeleteAsync($"/api/urls/{url.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await checkNow).StatusCode);
+    }
+
+    [Fact]
     public async Task Check_now_endpoint_checks_and_saves()
     {
         var url = await AddUrlAsync(stub.Url("/ok"));

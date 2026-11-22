@@ -20,11 +20,14 @@ builder.Services.AddDbContext<MonitorDbContext>(options =>
 builder.Services.Configure<MonitorOptions>(builder.Configuration.GetSection(MonitorOptions.SectionName));
 builder.Services.AddUrlChecker();
 builder.Services.AddScoped<ICheckRunner, CheckRunner>();
+builder.Services.AddSingleton<CheckStateLock>();
 
 builder.Services.Configure<AlertsOptions>(builder.Configuration.GetSection(AlertsOptions.SectionName));
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.AddScoped<IAlertService, AlertService>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddSingleton<IAlertQueue, AlertQueue>();
+builder.Services.AddHostedService<AlertDeliveryService>();
 
 if (builder.Configuration.GetValue($"{MonitorOptions.SectionName}:{nameof(MonitorOptions.SchedulerEnabled)}", true))
 {

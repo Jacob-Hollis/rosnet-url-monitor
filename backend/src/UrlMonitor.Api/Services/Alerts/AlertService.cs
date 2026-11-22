@@ -5,7 +5,7 @@ using UrlMonitor.Api.Models;
 
 namespace UrlMonitor.Api.Services.Alerts;
 
-/// <summary>An alert raised by a check, waiting to be saved and delivered.</summary>
+/// <summary>An alert raised by a check (not yet saved).</summary>
 public record RaisedAlert(AlertEvent Event, MonitoredUrl Url, UrlCheck Check);
 
 public interface IAlertService
@@ -18,10 +18,10 @@ public interface IAlertService
         IReadOnlyList<(MonitoredUrl Url, UrlCheck Check)> results, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Emails the Pending alerts (call after the checks and events are saved) and saves each one's outcome.
+    /// Emails the given alert events that are still Pending, and saves each one's outcome.
     /// Never throws for email problems: failures are recorded on the event.
     /// </summary>
-    Task DeliverAsync(IReadOnlyList<RaisedAlert> alerts, CancellationToken cancellationToken = default);
+    Task DeliverAsync(IReadOnlyCollection<long> alertEventIds, CancellationToken cancellationToken = default);
 }
 
 public class AlertService(
@@ -52,12 +52,13 @@ public class AlertService(
 
         if (raised.Count == 0) return [];
 
-        // URLs that already had an email sent within the cooldown window.
+        // URLs with an email sent, or queued to send, within the cooldown window. Pending counts too:
+        // emails go out in the background, so a recent alert may not be marked Sent yet.
         var cutoff = timeProvider.GetUtcNow().UtcDateTime - _options.Cooldown;
         var ids = raised.Select(r => r.Url.Id).ToList();
         var inCooldown = (await db.AlertEvents
                 .Where(e => ids.Contains(e.MonitoredUrlId)
-                            && e.Delivery == AlertDelivery.Sent
+                            && (e.Delivery == AlertDelivery.Sent || e.Delivery == AlertDelivery.Pending)
                             && e.OccurredAt > cutoff)
                 .Select(e => e.MonitoredUrlId)
                 .Distinct()
@@ -83,10 +84,17 @@ public class AlertService(
         return alerts;
     }
 
-    public async Task DeliverAsync(IReadOnlyList<RaisedAlert> alerts, CancellationToken cancellationToken = default)
+    public async Task DeliverAsync(IReadOnlyCollection<long> alertEventIds, CancellationToken cancellationToken = default)
     {
-        var pending = alerts.Where(a => a.Event.Delivery == AlertDelivery.Pending).ToList();
-        if (pending.Count == 0) return;
+        if (alertEventIds.Count == 0) return;
+
+        // Only still-Pending events: an id can be queued twice (e.g. re-queued at startup).
+        var events = await db.AlertEvents
+            .Include(e => e.MonitoredUrl)
+            .Where(e => alertEventIds.Contains(e.Id) && e.Delivery == AlertDelivery.Pending)
+            .OrderBy(e => e.Id)
+            .ToListAsync(cancellationToken);
+        if (events.Count == 0) return;
 
         try
         {
@@ -95,42 +103,40 @@ public class AlertService(
                 .Select(r => r.Email)
                 .ToListAsync(cancellationToken);
 
-            foreach (var alert in pending)
+            foreach (var alertEvent in events)
             {
                 if (recipients.Count == 0)
                 {
-                    alert.Event.Delivery = AlertDelivery.NoRecipients;
+                    alertEvent.Delivery = AlertDelivery.NoRecipients;
                     continue;
                 }
 
-                await SendOneAsync(alert, recipients, cancellationToken);
+                await SendOneAsync(alertEvent, recipients, cancellationToken);
             }
 
             await db.SaveChangesAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Shutting down: unsent alerts stay Pending.
-        }
-        catch (Exception ex)
-        {
-            // E.g. the database is locked. The checks are already saved; don't fail the run.
-            logger.LogError(ex, "Failed to deliver alerts");
+            // Shutting down: record what was already sent so it isn't emailed again; the rest stay Pending.
+            await db.SaveChangesAsync(CancellationToken.None);
         }
     }
 
-    private async Task SendOneAsync(RaisedAlert alert, List<string> recipients, CancellationToken cancellationToken)
+    private async Task SendOneAsync(AlertEvent alertEvent, List<string> recipients, CancellationToken cancellationToken)
     {
+        var url = alertEvent.MonitoredUrl!;
         try
         {
-            var downSince = alert.Event.Kind == AlertKind.Recovered
-                ? await FindDownSinceAsync(alert, cancellationToken)
+            var check = await FindCheckAsync(alertEvent, cancellationToken);
+            var downSince = alertEvent.Kind == AlertKind.Recovered
+                ? await FindDownSinceAsync(alertEvent, cancellationToken)
                 : null;
 
-            var email = AlertEmailComposer.Compose(alert.Event.Kind, alert.Url, alert.Check, downSince, LocalZone);
+            var email = AlertEmailComposer.Compose(alertEvent.Kind, url, check, downSince, LocalZone);
             await emailSender.SendAsync(recipients, email.Subject, email.Body, cancellationToken);
 
-            alert.Event.Delivery = AlertDelivery.Sent;
+            alertEvent.Delivery = AlertDelivery.Sent;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -138,18 +144,27 @@ public class AlertService(
         }
         catch (Exception ex)
         {
-            alert.Event.Delivery = AlertDelivery.Failed;
-            alert.Event.Error = ex.Message.Length <= MaxErrorLength ? ex.Message : ex.Message[..MaxErrorLength];
-            logger.LogWarning(ex, "Failed to send {Kind} alert for {Url}", alert.Event.Kind, alert.Url.Url);
+            alertEvent.Delivery = AlertDelivery.Failed;
+            alertEvent.Error = ex.Message.Length <= MaxErrorLength ? ex.Message : ex.Message[..MaxErrorLength];
+            logger.LogWarning(ex, "Failed to send {Kind} alert for {Url}", alertEvent.Kind, url.Url);
         }
     }
 
+    /// <summary>The check that raised the alert (an alert's time is its check's time).</summary>
+    private async Task<UrlCheck> FindCheckAsync(AlertEvent alertEvent, CancellationToken cancellationToken) =>
+        await db.UrlChecks
+            .AsNoTracking()
+            .Where(c => c.MonitoredUrlId == alertEvent.MonitoredUrlId && c.CheckedAt == alertEvent.OccurredAt)
+            .OrderByDescending(c => c.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+        ?? new UrlCheck { MonitoredUrlId = alertEvent.MonitoredUrlId, CheckedAt = alertEvent.OccurredAt };
+
     /// <summary>When the outage that just ended started: the latest Down event before this recovery.</summary>
-    private Task<DateTime?> FindDownSinceAsync(RaisedAlert alert, CancellationToken cancellationToken) =>
+    private Task<DateTime?> FindDownSinceAsync(AlertEvent alertEvent, CancellationToken cancellationToken) =>
         db.AlertEvents
-            .Where(e => e.MonitoredUrlId == alert.Url.Id
+            .Where(e => e.MonitoredUrlId == alertEvent.MonitoredUrlId
                         && e.Kind == AlertKind.Down
-                        && e.OccurredAt <= alert.Event.OccurredAt)
+                        && e.OccurredAt <= alertEvent.OccurredAt)
             .OrderByDescending(e => e.OccurredAt)
             .Select(e => (DateTime?)e.OccurredAt)
             .FirstOrDefaultAsync(cancellationToken);

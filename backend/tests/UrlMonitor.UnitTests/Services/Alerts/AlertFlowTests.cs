@@ -18,7 +18,10 @@ public sealed class AlertFlowTests : IAsyncLifetime
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 22, 12, 0, 0, TimeSpan.Zero));
     private readonly FakeEmailSender _email = new();
     private readonly AlertsOptions _alertOptions = new() { FailureThreshold = 2, CooldownMinutes = 30 };
+    private readonly AlertQueue _queue = new();
+    private readonly CheckStateLock _stateLock = new();
     private bool _siteIsUp = true;
+    private bool _deliverAfterEachRun = true;
     private int _urlId;
 
     public async Task InitializeAsync()
@@ -40,20 +43,34 @@ public sealed class AlertFlowTests : IAsyncLifetime
         await context.SaveChangesAsync();
     }
 
-    /// <summary>Runs one scheduled check, then moves the clock forward 5 minutes.</summary>
-    private async Task RunCheckAsync()
-    {
-        await using var context = _db.CreateContext();
-        var alertService = new AlertService(
-            context, _email, Options.Create(_alertOptions), _time, NullLogger<AlertService>.Instance)
+    private AlertService NewAlertService(Api.Data.MonitorDbContext context) =>
+        new(context, _email, Options.Create(_alertOptions), _time, NullLogger<AlertService>.Instance)
         {
             LocalZone = TimeZoneInfo.Utc,
         };
-        var runner = new CheckRunner(
-            context, new ScriptedChecker(this), alertService, Options.Create(new MonitorOptions()), NullLogger<CheckRunner>.Instance);
 
-        await runner.RunAllAsync();
+    /// <summary>
+    /// Runs one scheduled check, then (like the background delivery worker) emails whatever it queued,
+    /// then moves the clock forward 5 minutes.
+    /// </summary>
+    private async Task RunCheckAsync()
+    {
+        await using (var context = _db.CreateContext())
+        {
+            var runner = new CheckRunner(
+                context, new ScriptedChecker(this), NewAlertService(context), _queue, _stateLock,
+                Options.Create(new MonitorOptions()), NullLogger<CheckRunner>.Instance);
+            await runner.RunAllAsync();
+        }
+
+        if (_deliverAfterEachRun) await DeliverQueuedAsync();
         _time.Advance(TimeSpan.FromMinutes(5));
+    }
+
+    private async Task DeliverQueuedAsync()
+    {
+        await using var context = _db.CreateContext();
+        await NewAlertService(context).DeliverAsync(_queue.DequeueAvailable());
     }
 
     private async Task RunChecksAsync(string sequence)
@@ -127,6 +144,29 @@ public sealed class AlertFlowTests : IAsyncLifetime
 
         // The recovery is emailed: only a Sent email starts the cooldown.
         Assert.Equal("[RECOVERED] https://example.com", Assert.Single(_email.Sent).Subject);
+    }
+
+    [Fact]
+    public async Task Check_runs_queue_alerts_instead_of_waiting_for_email()
+    {
+        await AddRecipientsAsync("ops@example.com");
+        _deliverAfterEachRun = false; // the delivery worker hasn't caught up yet
+
+        await RunChecksAsync("UDD");
+
+        // The run finished without touching SMTP: the alert is saved as Pending and queued.
+        var alert = Assert.Single(await EventsAsync());
+        Assert.Equal(AlertDelivery.Pending, alert.Delivery);
+        Assert.Empty(_email.Sent);
+
+        // A queued (not yet sent) email still counts for the cooldown, so a quick recovery isn't emailed too.
+        await RunChecksAsync("U");
+        Assert.Equal(AlertDelivery.Suppressed, (await EventsAsync())[1].Delivery);
+
+        await DeliverQueuedAsync();
+        Assert.Equal("[DOWN] https://example.com", Assert.Single(_email.Sent).Subject);
+        Assert.Contains("HTTP 503", _email.Sent[0].Body); // details come from the check that raised it
+        Assert.Equal(AlertDelivery.Sent, (await EventsAsync())[0].Delivery);
     }
 
     [Fact]
