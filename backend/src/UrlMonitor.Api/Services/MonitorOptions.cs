@@ -5,6 +5,9 @@ public class MonitorOptions
 {
     public const string SectionName = "Monitor";
 
+    /// <summary>Turns the background scheduler off (integration tests trigger runs directly).</summary>
+    public bool SchedulerEnabled { get; set; } = true;
+
     /// <summary>How often every URL is checked (global for now; per-URL is a follow-up).</summary>
     public double CheckIntervalMinutes { get; set; } = 5;
 

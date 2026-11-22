@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using UrlMonitor.Api.Background;
 using UrlMonitor.Api.Data;
 using UrlMonitor.Api.Services;
 
@@ -11,6 +12,12 @@ builder.Services.AddDbContext<MonitorDbContext>(options =>
 
 builder.Services.Configure<MonitorOptions>(builder.Configuration.GetSection(MonitorOptions.SectionName));
 builder.Services.AddUrlChecker();
+builder.Services.AddScoped<ICheckRunner, CheckRunner>();
+
+if (builder.Configuration.GetValue($"{MonitorOptions.SectionName}:{nameof(MonitorOptions.SchedulerEnabled)}", true))
+{
+    builder.Services.AddHostedService<CheckSchedulerService>();
+}
 
 var app = builder.Build();
 
