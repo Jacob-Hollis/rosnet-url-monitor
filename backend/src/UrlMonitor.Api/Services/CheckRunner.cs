@@ -24,8 +24,11 @@ public class CheckRunner(
     IAlertQueue alertQueue,
     CheckStateLock stateLock,
     IOptions<MonitorOptions> options,
+    TimeProvider timeProvider,
     ILogger<CheckRunner> logger) : ICheckRunner
 {
+    private const int MaxErrorLength = 1000;
+
     private sealed record Target(int Id, string Url);
 
     public async Task<IReadOnlyList<UrlCheck>> RunAllAsync(CancellationToken cancellationToken = default)
@@ -47,7 +50,7 @@ public class CheckRunner(
                 MaxDegreeOfParallelism = Math.Max(1, options.Value.MaxConcurrency),
                 CancellationToken = cancellationToken,
             },
-            async (i, ct) => results[i] = await checker.CheckAsync(targets[i].Url, ct));
+            async (i, ct) => results[i] = await SafeCheckAsync(targets[i], ct));
 
         var checks = await SaveResultsAsync(targets.Select((t, i) => (t.Id, results[i])).ToList(), cancellationToken);
 
@@ -67,7 +70,7 @@ public class CheckRunner(
             .FirstOrDefaultAsync(cancellationToken);
         if (target is null) return null;
 
-        var result = await checker.CheckAsync(target.Url, cancellationToken);
+        var result = await SafeCheckAsync(target, cancellationToken);
 
         // Null if the URL was deleted while it was being checked.
         return (await SaveResultsAsync([(target.Id, result)], cancellationToken)).SingleOrDefault();
@@ -106,6 +109,31 @@ public class CheckRunner(
 
         alertQueue.Enqueue(alerts.Where(a => a.Event.Delivery == AlertDelivery.Pending).Select(a => a.Event.Id));
         return checks;
+    }
+
+    /// <summary>
+    /// Checks one URL. The checker turns known network/HTTP problems into "down" results itself; anything
+    /// unexpected is recorded as a down check for this URL only, instead of aborting the whole run
+    /// (Parallel.ForEachAsync stops everything on the first exception, and no results would be saved).
+    /// </summary>
+    private async Task<CheckResult> SafeCheckAsync(Target target, CancellationToken cancellationToken)
+    {
+        var startedAt = timeProvider.GetUtcNow().UtcDateTime;
+        try
+        {
+            return await checker.CheckAsync(target.Url, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // App shutting down.
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Unexpected error checking {Url}", target.Url);
+            var error = $"Check failed: {ex.Message}";
+            return new CheckResult(
+                startedAt, null, 0, false, error.Length <= MaxErrorLength ? error : error[..MaxErrorLength]);
+        }
     }
 
     private static UrlCheck ToEntity(int urlId, CheckResult result) => new()

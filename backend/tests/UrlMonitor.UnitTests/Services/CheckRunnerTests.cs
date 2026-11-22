@@ -21,7 +21,8 @@ public sealed class CheckRunnerTests : IAsyncLifetime
     public async Task DisposeAsync() => await _db.DisposeAsync();
 
     private CheckRunner CreateRunner(Api.Data.MonitorDbContext context, IUrlChecker checker) =>
-        new(context, checker, NewAlertService(context), _queue, _stateLock, Options.Create(_options), NullLogger<CheckRunner>.Instance);
+        new(context, checker, NewAlertService(context), _queue, _stateLock, Options.Create(_options),
+            TimeProvider.System, NullLogger<CheckRunner>.Instance);
 
     private static AlertService NewAlertService(Api.Data.MonitorDbContext context) => new(
         context, new FakeEmailSender(), Options.Create(new AlertsOptions()), TimeProvider.System, NullLogger<AlertService>.Instance);
@@ -114,6 +115,28 @@ public sealed class CheckRunnerTests : IAsyncLifetime
 
         await using var verify = _db.CreateContext();
         Assert.Equal(ids[0], (await verify.UrlChecks.SingleAsync()).MonitoredUrlId);
+    }
+
+    [Fact]
+    public async Task Unexpected_checker_error_is_recorded_for_that_url_only()
+    {
+        await AddUrlsAsync(("https://broken.test", true), ("https://fine.test", true));
+        var checker = new FakeChecker(url => url == "https://broken.test"
+            ? throw new ArgumentException("Something unexpected")
+            : new CheckResult(Now, 200, 1, true, null));
+
+        await using (var context = _db.CreateContext())
+        {
+            Assert.Equal(2, (await CreateRunner(context, checker).RunAllAsync()).Count);
+        }
+
+        await using var verify = _db.CreateContext();
+        var saved = await verify.UrlChecks.Include(c => c.MonitoredUrl).ToListAsync();
+        Assert.True(saved.Single(c => c.MonitoredUrl!.Url == "https://fine.test").IsUp);
+        var broken = saved.Single(c => c.MonitoredUrl!.Url == "https://broken.test");
+        Assert.False(broken.IsUp);
+        Assert.Null(broken.StatusCode);
+        Assert.Equal("Check failed: Something unexpected", broken.Error);
     }
 
     [Fact]

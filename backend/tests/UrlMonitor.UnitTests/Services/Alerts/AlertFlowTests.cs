@@ -59,7 +59,7 @@ public sealed class AlertFlowTests : IAsyncLifetime
         {
             var runner = new CheckRunner(
                 context, new ScriptedChecker(this), NewAlertService(context), _queue, _stateLock,
-                Options.Create(new MonitorOptions()), NullLogger<CheckRunner>.Instance);
+                Options.Create(new MonitorOptions()), _time, NullLogger<CheckRunner>.Instance);
             await runner.RunAllAsync();
         }
 
@@ -167,6 +167,24 @@ public sealed class AlertFlowTests : IAsyncLifetime
         Assert.Equal("[DOWN] https://example.com", Assert.Single(_email.Sent).Subject);
         Assert.Contains("HTTP 503", _email.Sent[0].Body); // details come from the check that raised it
         Assert.Equal(AlertDelivery.Sent, (await EventsAsync())[0].Delivery);
+    }
+
+    [Fact]
+    public async Task Alert_is_saved_as_sending_before_the_email_goes_out()
+    {
+        // If the outcome then can't be saved, the alert must not look unsent (Pending) and be emailed again.
+        await AddRecipientsAsync("ops@example.com");
+        AlertDelivery? statusWhileSending = null;
+        _email.OnSend = async () =>
+        {
+            await using var context = _db.CreateContext();
+            statusWhileSending = (await context.AlertEvents.SingleAsync()).Delivery;
+        };
+
+        await RunChecksAsync("UDD");
+
+        Assert.Equal(AlertDelivery.Sending, statusWhileSending);
+        Assert.Equal(AlertDelivery.Sent, Assert.Single(await EventsAsync()).Delivery);
     }
 
     [Fact]

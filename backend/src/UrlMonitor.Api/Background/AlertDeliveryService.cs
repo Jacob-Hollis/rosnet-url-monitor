@@ -20,6 +20,9 @@ public class AlertDeliveryService(
 
     public const string StaleError = "Not emailed: the app stopped before this alert could be sent.";
 
+    public const string InterruptedError =
+        "Unknown: the app stopped (or hit a database error) while sending this email, so it may or may not have been sent.";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
@@ -48,12 +51,21 @@ public class AlertDeliveryService(
         }
     }
 
-    /// <summary>Re-queues recent Pending alerts; marks older ones Failed so stale alerts aren't emailed hours late.</summary>
+    /// <summary>
+    /// At startup: alerts left Sending may already have been emailed, so they're marked Failed (never sent twice).
+    /// Recent Pending alerts are re-queued; older ones are marked Failed so stale alerts aren't emailed hours late.
+    /// </summary>
     public async Task RecoverPendingAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<MonitorDbContext>();
         var cutoff = timeProvider.GetUtcNow().UtcDateTime - MaxPendingAge;
+
+        await db.AlertEvents
+            .Where(e => e.Delivery == AlertDelivery.Sending)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.Delivery, AlertDelivery.Failed)
+                .SetProperty(e => e.Error, InterruptedError), cancellationToken);
 
         await db.AlertEvents
             .Where(e => e.Delivery == AlertDelivery.Pending && e.OccurredAt < cutoff)

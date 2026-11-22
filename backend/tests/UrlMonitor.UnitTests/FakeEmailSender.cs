@@ -12,10 +12,13 @@ public sealed class FakeEmailSender : IEmailSender
     /// <summary>When set, SendAsync throws this instead of recording.</summary>
     public Exception? FailWith { get; set; }
 
-    public Task SendAsync(IReadOnlyCollection<string> recipients, string subject, string body, CancellationToken cancellationToken = default)
+    /// <summary>Runs at the moment of "sending", e.g. to inspect what's in the database then.</summary>
+    public Func<Task>? OnSend { get; set; }
+
+    public async Task SendAsync(IReadOnlyCollection<string> recipients, string subject, string body, CancellationToken cancellationToken = default)
     {
-        if (FailWith is not null) return Task.FromException(FailWith);
+        if (OnSend is not null) await OnSend();
+        if (FailWith is not null) throw FailWith;
         Sent.Add(new SentEmail(recipients.ToList(), subject, body));
-        return Task.CompletedTask;
     }
 }

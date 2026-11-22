@@ -66,7 +66,7 @@ public sealed class MonitorAppFactory : WebApplicationFactory<Program>
         await WaitForAlertDeliveryAsync();
     }
 
-    /// <summary>Waits until no alert is still waiting to be emailed.</summary>
+    /// <summary>Waits until no alert is still queued or being emailed.</summary>
     public async Task WaitForAlertDeliveryAsync()
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
@@ -74,7 +74,7 @@ public sealed class MonitorAppFactory : WebApplicationFactory<Program>
         {
             await using var scope = Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<MonitorDbContext>();
-            if (!await db.AlertEvents.AnyAsync(e => e.Delivery == AlertDelivery.Pending)) return;
+            if (!await db.AlertEvents.AnyAsync(e => e.Delivery == AlertDelivery.Pending || e.Delivery == AlertDelivery.Sending)) return;
             if (DateTime.UtcNow > deadline) throw new TimeoutException("Alerts were still Pending after 10s.");
             await Task.Delay(20);
         }

@@ -67,13 +67,15 @@ const deliveryBadge = {
   Suppressed: 'unknown',
   NoRecipients: 'warn',
   Pending: 'unknown',
+  Sending: 'unknown',
 }
 const deliveryLabel = {
   Sent: 'Emailed',
   Failed: 'Email failed',
   Suppressed: 'Not emailed (cooldown)',
   NoRecipients: 'Not emailed (no recipients)',
-  Pending: 'Sending…',
+  Pending: 'Queued',
+  Sending: 'Sending…',
 }
 </script>
 

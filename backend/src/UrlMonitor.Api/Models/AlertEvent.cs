@@ -27,8 +27,14 @@ public enum AlertKind
 
 public enum AlertDelivery
 {
-    /// <summary>Saved, email not sent yet (stays Pending if the app stops mid-send).</summary>
+    /// <summary>Saved and queued; the email hasn't been attempted yet.</summary>
     Pending,
+
+    /// <summary>
+    /// The email is being sent right now. Saved before contacting the SMTP server, so if the outcome can't be
+    /// recorded (app stopped, database error) the alert is marked Failed at the next start, never emailed twice.
+    /// </summary>
+    Sending,
 
     /// <summary>Email sent to all recipients.</summary>
     Sent,

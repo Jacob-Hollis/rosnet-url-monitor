@@ -52,13 +52,15 @@ public class AlertService(
 
         if (raised.Count == 0) return [];
 
-        // URLs with an email sent, or queued to send, within the cooldown window. Pending counts too:
-        // emails go out in the background, so a recent alert may not be marked Sent yet.
+        // URLs with an email sent, queued or being sent within the cooldown window. Pending and Sending count
+        // too: emails go out in the background, so a recent alert may not be marked Sent yet.
         var cutoff = timeProvider.GetUtcNow().UtcDateTime - _options.Cooldown;
         var ids = raised.Select(r => r.Url.Id).ToList();
         var inCooldown = (await db.AlertEvents
                 .Where(e => ids.Contains(e.MonitoredUrlId)
-                            && (e.Delivery == AlertDelivery.Sent || e.Delivery == AlertDelivery.Pending)
+                            && (e.Delivery == AlertDelivery.Sent
+                                || e.Delivery == AlertDelivery.Pending
+                                || e.Delivery == AlertDelivery.Sending)
                             && e.OccurredAt > cutoff)
                 .Select(e => e.MonitoredUrlId)
                 .Distinct()
@@ -96,30 +98,46 @@ public class AlertService(
             .ToListAsync(cancellationToken);
         if (events.Count == 0) return;
 
+        var recipients = await db.AlertRecipients
+            .OrderBy(r => r.Id)
+            .Select(r => r.Email)
+            .ToListAsync(cancellationToken);
+
+        if (recipients.Count == 0)
+        {
+            foreach (var alertEvent in events) alertEvent.Delivery = AlertDelivery.NoRecipients;
+            await db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        foreach (var alertEvent in events)
+        {
+            // Saved before contacting SMTP: if this fails, nothing was sent and the alert stays Pending.
+            // If the outcome below can't be saved, the alert stays Sending and is marked Failed at the next
+            // start (AlertDeliveryService) rather than emailed a second time.
+            alertEvent.Delivery = AlertDelivery.Sending;
+            await db.SaveChangesAsync(cancellationToken);
+
+            await SendOneAsync(alertEvent, recipients, cancellationToken);
+            await SaveOutcomeAsync(alertEvent);
+        }
+    }
+
+    /// <summary>
+    /// Records Sent/Failed right after each email, even during shutdown, so earlier outcomes aren't lost if a
+    /// later one fails. On a database error the change stays pending in the DbContext and is retried by the next save.
+    /// </summary>
+    private async Task SaveOutcomeAsync(AlertEvent alertEvent)
+    {
         try
         {
-            var recipients = await db.AlertRecipients
-                .OrderBy(r => r.Id)
-                .Select(r => r.Email)
-                .ToListAsync(cancellationToken);
-
-            foreach (var alertEvent in events)
-            {
-                if (recipients.Count == 0)
-                {
-                    alertEvent.Delivery = AlertDelivery.NoRecipients;
-                    continue;
-                }
-
-                await SendOneAsync(alertEvent, recipients, cancellationToken);
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Shutting down: record what was already sent so it isn't emailed again; the rest stay Pending.
             await db.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Could not record that alert {AlertId} was {Delivery}; it stays Sending and will be marked Failed at the next start, not emailed again",
+                alertEvent.Id, alertEvent.Delivery);
         }
     }
 
