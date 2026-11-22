@@ -39,7 +39,7 @@ rosnet-url-monitor/
 ├─ design.md
 ├─ dotnet-tools.json                 # local tool manifest: dotnet-ef 10.0.15, smtp4dev 3.15.0
 ├─ package.json                      # root scripts: `npm run setup`, `npm start` (API + Vite + smtp4dev)
-├─ UrlMonitor.sln
+├─ UrlMonitor.slnx                    # .NET 10's default (XML) solution format
 ├─ backend/
 │  ├─ src/UrlMonitor.Api/
 │  │  ├─ Program.cs                  # DI, EF, hosted service, endpoints, CORS
