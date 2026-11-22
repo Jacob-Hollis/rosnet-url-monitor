@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using UrlMonitor.Api.Background;
 using UrlMonitor.Api.Data;
 using UrlMonitor.Api.Endpoints;
+using UrlMonitor.Api.Security;
 using UrlMonitor.Api.Services;
 using UrlMonitor.Api.Services.Alerts;
 
@@ -40,6 +41,10 @@ await app.InitializeDatabaseAsync();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+// No login, so: AllowedHosts (appsettings.json) rejects DNS-rebinding requests, and this rejects
+// data-changing requests made by other websites through your browser (CSRF).
+app.UseCrossSiteRequestGuard();
 
 if (app.Environment.IsDevelopment())
 {

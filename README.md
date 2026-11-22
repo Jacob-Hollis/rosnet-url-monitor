@@ -140,6 +140,12 @@ Run the parts separately if you prefer: `npm run start:api`, `npm run start:web`
   `dotnet ef migrations add <Name> --project backend/src/UrlMonitor.Api --output-dir Data/Migrations`.
   Migrations are applied automatically at startup.
 - **HTTPS:** the app runs over plain HTTP locally, so no development certificate is needed.
+- **"400 Bad Request – Invalid Hostname"** when opening the API by another name (e.g. a LAN IP): the API only
+  answers to `localhost`, `127.0.0.1` and `[::1]`, which blocks DNS-rebinding attacks. Add the name to
+  `AllowedHosts` in `appsettings.json` (semicolon-separated) only if you really need it, since the API has no login.
+- **"403 Cross-site requests that change data are not allowed":** the API rejects data-changing requests
+  that a browser marks as coming from another website, so a page you visit can't, say, send test emails or
+  delete URLs. The UI, curl and scripts are unaffected.
 
 ## Possible follow-ups
 
