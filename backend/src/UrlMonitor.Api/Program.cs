@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using UrlMonitor.Api.Background;
 using UrlMonitor.Api.Data;
 using UrlMonitor.Api.Services;
+using UrlMonitor.Api.Services.Alerts;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +14,11 @@ builder.Services.AddDbContext<MonitorDbContext>(options =>
 builder.Services.Configure<MonitorOptions>(builder.Configuration.GetSection(MonitorOptions.SectionName));
 builder.Services.AddUrlChecker();
 builder.Services.AddScoped<ICheckRunner, CheckRunner>();
+
+builder.Services.Configure<AlertsOptions>(builder.Configuration.GetSection(AlertsOptions.SectionName));
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.AddScoped<IAlertService, AlertService>();
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
 if (builder.Configuration.GetValue($"{MonitorOptions.SectionName}:{nameof(MonitorOptions.SchedulerEnabled)}", true))
 {

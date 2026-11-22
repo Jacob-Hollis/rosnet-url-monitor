@@ -52,7 +52,7 @@ rosnet-url-monitor/
 │  │  │  ├─ UrlCheck.cs              # Id, MonitoredUrlId, CheckedAt, StatusCode?, ResponseTimeMs, IsUp, Error?
 │  │  │  ├─ AlertRecipient.cs        # Id, Email, CreatedAt
 │  │  │  └─ AlertEvent.cs            # Id, MonitoredUrlId, OccurredAt, Kind (Down/Recovered),
-│  │  │                               #   Delivery (Sent/Failed/Suppressed/NoRecipients), Error?
+│  │  │                               #   Delivery (Pending/Sent/Failed/Suppressed/NoRecipients), Error?
 │  │  ├─ Dtos/                       # UrlSummaryDto, CheckDto, CreateUrlRequest, StatsDto, RecipientDto
 │  │  ├─ Endpoints/
 │  │  │  ├─ UrlEndpoints.cs          # add / delete / list
@@ -61,8 +61,12 @@ rosnet-url-monitor/
 │  │  ├─ Services/
 │  │  │  ├─ IUrlChecker.cs / UrlChecker.cs         # one HTTP check → result (unit-testable)
 │  │  │  ├─ ICheckRunner.cs / CheckRunner.cs       # checks all URLs, saves results, calls AlertService
-│  │  │  ├─ IAlertService.cs / AlertService.cs     # state-change detection → AlertEvent → send
-│  │  │  ├─ IEmailSender.cs / SmtpEmailSender.cs   # MailKit implementation
+│  │  │  ├─ Alerts/
+│  │  │  │  ├─ AlertService.cs                     # evaluate state changes → AlertEvent; deliver emails
+│  │  │  │  ├─ AlertRules.cs                       # pure state machine: threshold, recovery, cooldown
+│  │  │  │  ├─ AlertEmailComposer.cs               # subject/body text
+│  │  │  │  ├─ IEmailSender.cs / SmtpEmailSender.cs  # MailKit 4.x implementation
+│  │  │  │  └─ AlertsOptions.cs                    # "Alerts" and "Smtp" config sections
 │  │  │  ├─ StatusRules.cs                         # up/down rule: 2xx, 401, 403 = up
 │  │  │  └─ MonitorOptions.cs                      # "Monitor" config section
 │  │  │  (time comes from .NET's built-in TimeProvider; tests use FakeTimeProvider)
@@ -123,11 +127,12 @@ Using a real provider later (Gmail, SendGrid, Office 365) only means changing th
 ```json
 "Smtp": {
   "Host": "localhost",
-  "Port": 25,
-  "UseSsl": false,
+  "Port": 2525,
+  "Security": "None",
   "Username": "",
   "Password": "",
-  "From": "url-monitor@localhost"
+  "From": "url-monitor@localhost",
+  "TimeoutSeconds": 10
 },
 "Alerts": {
   "FailureThreshold": 2,

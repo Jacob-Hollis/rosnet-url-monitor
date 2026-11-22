@@ -27,13 +27,16 @@ public enum AlertKind
 
 public enum AlertDelivery
 {
+    /// <summary>Saved, email not sent yet (stays Pending if the app stops mid-send).</summary>
+    Pending,
+
     /// <summary>Email sent to all recipients.</summary>
     Sent,
 
     /// <summary>Sending failed; see <see cref="AlertEvent.Error"/>.</summary>
     Failed,
 
-    /// <summary>Not sent because the URL is within its alert cooldown.</summary>
+    /// <summary>Not sent: the URL is within its alert cooldown, or recovery emails are turned off.</summary>
     Suppressed,
 
     /// <summary>Not sent because no recipients are configured.</summary>

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using UrlMonitor.Api.Models;
 using UrlMonitor.Api.Services;
+using UrlMonitor.Api.Services.Alerts;
 
 namespace UrlMonitor.UnitTests.Services;
 
@@ -19,7 +20,10 @@ public sealed class CheckRunnerTests : IAsyncLifetime
     public async Task DisposeAsync() => await _db.DisposeAsync();
 
     private CheckRunner CreateRunner(Api.Data.MonitorDbContext context, IUrlChecker checker) =>
-        new(context, checker, Options.Create(_options), NullLogger<CheckRunner>.Instance);
+        new(context, checker, NewAlertService(context), Options.Create(_options), NullLogger<CheckRunner>.Instance);
+
+    private static AlertService NewAlertService(Api.Data.MonitorDbContext context) => new(
+        context, new FakeEmailSender(), Options.Create(new AlertsOptions()), TimeProvider.System, NullLogger<AlertService>.Instance);
 
     private async Task<List<int>> AddUrlsAsync(params (string Url, bool Active)[] urls)
     {
