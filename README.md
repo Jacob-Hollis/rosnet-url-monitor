@@ -155,9 +155,10 @@ Run the parts separately if you prefer: `npm run start:api`, `npm run start:web`
 30 minutes was allocated to design, 1 hour to coding, and 1 hour to review and testing. A small amount of extra time for reviewing this readme and adding context.
 
 ## Backend design
-
+I chose .NET and SQLite. The reasoning behind .NET is how familiar I was with it already and also the fact that Rosnet is a .NET shop. I chose SQLite for it's lightweight nature and being perfectly suited for the small scope of this demo. Because it uses only simple column types, it's easy to move it to Postgres or a different more robust database. Scheduling is done with a built-in BackgroundService on a PeriodicTimer that checks every 5 minutes. I chose it over other options (like Hangfire or Quartz) because it adds no dependencies and never overlaps runs. For concurrency and error handling, the HTTP checks run without any lock, then results are applied to freshly loaded state under one app-wide lock. Failures of any kind become a "down" check for that URL only, and emails go out from a separate background queue, so a bad URL or a dead mail server never stalls monitoring.
 
 ## Frontend design
+I initially thought about using Angular for the framework but decided to go with a more lightweight JS choice in Vue 3, which I had used before for smaller projects. It has three pages, a dashboard, a URL detail page and an alerts page. I tried to build as many small shared pieces such as possible, with the status chip, the history chart and table, the add forms and the toast all shared. For state, I used a couple of plain Vue reactive modules, one polls /api/urls every 30 seconds for the whole app, so a URL going down shows a pop-up on any page, and the chart's view, metric and time range are kept in the page address so a refresh or shared link keeps them. Data fetching is a thin fetch wrapper that turns the API's error responses into readable messages, with Chart.js drawing the history. This data fetching is something that is lightweight and functional, but could be polished later.
 
 
 ## Testing approach
@@ -180,3 +181,7 @@ I used Claude Code exclusively for design and coding.
 - **Postgres (mostly a provider change plus regenerated migrations)**
 - **UI automated tests, for example through Playwright**
 
+**There are a lot of things that could be polished as mentioned above, but here are my top three:**
+1. The frontend has no automated tests (which was an intentional choice for this small scope). I woud add a few Vitest component tests (status chip, gap rows, toast state changes) and one Playwright test that runs the full real stack.
+2. The history in the database grows forever. Each URL adds 288 rows a day, and nothing deletes them. There needs to be a retention job to clean up stale history, plus hourly totals stored when each check is saved, so the dashboard and long charts read a few hundred summary rows instead of thousands of raw checks.
+3. The concurrency and email guarantees only hold for one running copy of the API. In the event there are multiple instances, move the coordination into the database. A concurrency token on MonitoredUrl so conflicting saves are detected and retried, and an "outbox" table that the email worker reads, instead of the in-memory queue.
